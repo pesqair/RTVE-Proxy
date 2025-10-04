@@ -26,7 +26,7 @@ echo "Setting up Cloudflare Tunnel for $DOMAIN..."
 echo "Getting Cloudflare Account ID from zone..."
 
 # Extract zone (root domain) from DOMAIN
-# e.g., mad-proxy2.digitaino.com -> digitaino.com
+# e.g., rtve-proxy.example.com -> example.com
 ZONE=$(echo "$DOMAIN" | awk -F. '{print $(NF-1)"."$NF}')
 
 # Get Zone info which includes account ID
