@@ -1,0 +1,5 @@
+.env
+gluetun/
+certs/
+cloudflared/
+.DS_Store

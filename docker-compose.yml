@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  vpn:
+    image: qmcgaw/gluetun
+    container_name: rtve-vpn
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - OPENVPN_USER=${PROTONVPN_USER}
+      - OPENVPN_PASSWORD=${PROTONVPN_PASSWORD}
+      - SERVER_COUNTRIES=Spain
+      - FREE_ONLY=off  # Set to 'on' if using free ProtonVPN
+      - VPN_TYPE=openvpn  # or wireguard if you prefer
+      - DOT=off  # Disable DNS over TLS
+      - DNS_ADDRESS=1.1.1.1  # Use Cloudflare DNS
+    volumes:
+      - ./gluetun:/gluetun
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: rtve-nginx
+    network_mode: "service:vpn"  # Route through VPN
+    depends_on:
+      - vpn
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
+      - certbot-data:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+    command: /bin/sh -c "envsubst '$$DOMAIN' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    container_name: rtve-certbot
+    volumes:
+      - certbot-data:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done;'"
+    restart: unless-stopped
+
+volumes:
+  certbot-data:
+  certbot-www:
