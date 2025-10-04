@@ -38,12 +38,12 @@ fi
 
 # 2. Check nginx is responding
 log "Checking nginx health..."
-NGINX_RESPONSE=$(docker exec rtve-vpn wget -qO- --timeout=5 http://localhost:80 2>&1 | head -1)
+NGINX_STATUS=$(docker exec rtve-vpn wget --spider -S --timeout=5 http://localhost:80 2>&1 | grep "HTTP/" | head -1 | awk '{print $2}')
 
-if echo "$NGINX_RESPONSE" | grep -q "404\|200\|302"; then
-    success "Nginx is responding"
+if [ "$NGINX_STATUS" = "200" ] || [ "$NGINX_STATUS" = "404" ] || [ "$NGINX_STATUS" = "302" ]; then
+    success "Nginx is responding (HTTP $NGINX_STATUS)"
 else
-    error "Nginx not responding properly"
+    error "Nginx not responding properly (HTTP $NGINX_STATUS)"
     FAILED=1
 fi
 
@@ -58,12 +58,12 @@ else
     FAILED=1
 fi
 
-# 4. Test actual proxy endpoint
+# 4. Test actual proxy endpoint with real stream
 log "Testing proxy endpoint..."
-TEST_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://${DOMAIN:-mad-proxy2.digitaino.com}/rtve/test" 2>/dev/null)
+TEST_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://${DOMAIN}/eventual/gofast/playm9_main.m3u8" 2>/dev/null)
 
-if [ "$TEST_RESPONSE" = "404" ] || [ "$TEST_RESPONSE" = "200" ]; then
-    success "Proxy endpoint reachable (HTTP $TEST_RESPONSE)"
+if [ "$TEST_RESPONSE" = "200" ]; then
+    success "Proxy endpoint working (HTTP $TEST_RESPONSE)"
 else
     error "Proxy endpoint failed (HTTP $TEST_RESPONSE)"
     FAILED=1
@@ -80,7 +80,7 @@ fi
 # Restart if failures detected
 if [ $FAILED -eq 1 ]; then
     error "Health check failed! Restarting containers..."
-    docker-compose -f /app/docker-compose.yml restart
+    docker restart rtve-vpn rtve-nginx rtve-cloudflared
     exit 1
 else
     success "All health checks passed!"
