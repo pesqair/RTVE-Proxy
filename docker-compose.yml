@@ -16,38 +16,70 @@ services:
       - OPENVPN_USER=${PROTONVPN_USER}
       - OPENVPN_PASSWORD=${PROTONVPN_PASSWORD}
       - SERVER_COUNTRIES=Spain
-      - FREE_ONLY=off  # Set to 'on' if using free ProtonVPN
-      - VPN_TYPE=openvpn  # or wireguard if you prefer
-      - DOT=off  # Disable DNS over TLS
-      - DNS_ADDRESS=1.1.1.1  # Use Cloudflare DNS
+      - FREE_ONLY=off
+      - VPN_TYPE=openvpn
+      - DOT=off
+      - DNS_ADDRESS=1.1.1.1
     volumes:
       - ./gluetun:/gluetun
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://ipapi.co/country"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
 
   nginx:
     image: nginx:alpine
     container_name: rtve-nginx
-    network_mode: "service:vpn"  # Route through VPN
+    network_mode: "service:vpn"
     depends_on:
       - vpn
     environment:
       - DOMAIN=${DOMAIN}
     volumes:
-      - ./nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
-      - certbot-data:/etc/letsencrypt:ro
-      - certbot-www:/var/www/certbot:ro
-    command: /bin/sh -c "envsubst '$$DOMAIN' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"
+      - ./nginx-cloudflare.conf:/etc/nginx/templates/nginx.conf.template:ro
+    command: /bin/sh -c "mkdir -p /var/cache/nginx && envsubst '$$DOMAIN' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  certbot:
-    image: certbot/certbot
-    container_name: rtve-certbot
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: rtve-cloudflared
+    network_mode: "service:vpn"
+    command: tunnel --config /etc/cloudflared/config.yml run
     volumes:
-      - certbot-data:/etc/letsencrypt
-      - certbot-www:/var/www/certbot
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done;'"
+      - ./cloudflared:/etc/cloudflared:ro
+    depends_on:
+      - vpn
+      - nginx
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 80 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-volumes:
-  certbot-data:
-  certbot-www:
+  healthcheck:
+    image: alpine:latest
+    container_name: rtve-healthcheck
+    depends_on:
+      - vpn
+      - nginx
+      - cloudflared
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./healthcheck.sh:/healthcheck.sh:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: >
+      sh -c "apk add --no-cache docker-cli curl &&
+             while true; do
+               /healthcheck.sh;
+               sleep 300;
+             done"
+    restart: unless-stopped

@@ -172,14 +172,19 @@ fi
 echo ""
 echo "✅ Cloudflare Tunnel setup complete!"
 echo ""
-echo "Starting services..."
-docker-compose -f docker-compose.yml -f docker-compose.cloudflare.yml up -d
+echo "Starting services with health monitoring..."
+docker-compose up -d
 
 echo ""
 echo "🎉 Done! Your proxy is now running at https://$DOMAIN"
 echo ""
+echo "Health checks run every 5 minutes and auto-restart containers if needed."
+echo ""
 echo "To view logs:"
-echo "  docker-compose -f docker-compose.yml -f docker-compose.cloudflare.yml logs -f"
+echo "  docker-compose logs -f"
+echo ""
+echo "To check health status:"
+echo "  docker logs rtve-healthcheck"
 echo ""
 echo "To stop:"
-echo "  docker-compose -f docker-compose.yml -f docker-compose.cloudflare.yml down"
+echo "  docker-compose down"

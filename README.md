@@ -1,8 +1,16 @@
 # RTVE Proxy
 
-Docker Compose setup for proxying RTVE streaming through a Spanish VPN exit point.
+Docker Compose setup for proxying RTVE streaming through a Spanish VPN exit point with Cloudflare Tunnel.
 
-## Quick Start
+## Features
+
+- 🔒 **Cloudflare Tunnel** - Secure inbound access without port forwarding (default)
+- 🌍 **VPN Exit** - All traffic routes through ProtonVPN Spain servers
+- ⚡ **HLS Caching** - Nginx caches video segments (500MB, 10min) to reduce bandwidth
+- 🏥 **Health Monitoring** - Automatic health checks with container restart on failure
+- 🔄 **Auto-recovery** - Monitors VPN connection, tunnel status, and endpoint health
+
+## Quick Start (Cloudflare Tunnel - Recommended)
 
 ### 1. Get ProtonVPN Credentials
 
@@ -14,161 +22,165 @@ Docker Compose setup for proxying RTVE streaming through a Spanish VPN exit poin
 
 ```bash
 cp .env.example .env
-# Edit .env with at minimum:
+# Edit .env with:
 #   - PROTONVPN_USER and PROTONVPN_PASSWORD
-#   - DOMAIN (your domain name)
-#
-# Additional vars needed depending on deployment mode:
-#   - For Cloudflare Tunnel: CLOUDFLARE_API_TOKEN, CLOUDFLARE_TUNNEL_NAME
-#   - For Let's Encrypt: SSL_EMAIL
+#   - DOMAIN (your domain name - must use Cloudflare for DNS)
+#   - CLOUDFLARE_API_TOKEN (from https://dash.cloudflare.com/profile/api-tokens)
+#     Required permissions: Zone.Zone (Read), Zone.DNS (Edit), Account.Cloudflare Tunnel (Edit)
+#   - CLOUDFLARE_TUNNEL_NAME (e.g., "rtve-proxy")
 ```
 
-### 3. Testing Locally (Mac)
-
-For testing without SSL on your Mac:
-
-1. Edit `nginx.conf` - comment out the HTTPS server block and uncomment the HTTP testing block
-2. In `.env`, set `DOMAIN=localhost`
-3. Run:
-```bash
-docker-compose up -d
-```
-
-4. Check VPN is working:
-```bash
-# Check VPN container logs
-docker logs rtve-vpn
-
-# Verify exit IP is in Spain
-docker exec rtve-vpn curl -s ifconfig.me
-```
-
-5. Test the proxy:
-```bash
-curl http://localhost/rtve/your-stream-path.m3u8
-```
-
-### 4. Production Deployment (Raspberry Pi)
-
-You have two options for production deployment:
-
-#### Option A: Cloudflare Tunnel (Recommended - Easiest)
-
-**Advantages:**
-- No port forwarding required
-- No need to expose Raspberry Pi to internet
-- Cloudflare handles SSL automatically
-- Built-in DDoS protection
-- Works behind carrier-grade NAT
-
-**Setup:**
-
-1. Configure `.env` file with:
-   - `PROTONVPN_USER` and `PROTONVPN_PASSWORD`
-   - `DOMAIN` - your domain name (must use Cloudflare for DNS)
-   - `CLOUDFLARE_API_TOKEN` - create at https://dash.cloudflare.com/profile/api-tokens
-     - Required permissions: `Zone.Zone (Read)`, `Zone.DNS (Edit)`, `Account.Cloudflare Tunnel (Edit)`
-   - `CLOUDFLARE_TUNNEL_NAME` - name for your tunnel (e.g., "rtve-proxy")
-
-2. Run the setup script:
+### 3. Setup Cloudflare Tunnel
 
 ```bash
 ./setup-cloudflare.sh
 ```
 
-That's it! The script will automatically:
+This will:
 - Create a Cloudflare Tunnel
-- Generate tunnel credentials and save to .env
-- Create DNS record pointing to the tunnel
-- Start the full stack with HTTPS enabled
+- Generate tunnel credentials
+- Create DNS record automatically
+- Start all services with health monitoring
 
-**Subsequent starts:**
-
-```bash
-docker-compose -f docker-compose.yml -f docker-compose.cloudflare.yml up -d
-```
-
-#### Option B: Let's Encrypt with Port Forwarding
-
-**Use this if you don't use Cloudflare for DNS**
-
-1. Configure `.env` file with:
-   - `PROTONVPN_USER` and `PROTONVPN_PASSWORD`
-   - `DOMAIN` - your domain name
-   - `SSL_EMAIL` - email for Let's Encrypt notifications
-
-2. Point your domain's DNS A record to your Raspberry Pi's public IP
-
-3. Forward ports 80 and 443 on your router to your Raspberry Pi
-
-4. Run the setup script:
-
-```bash
-./setup-ssl.sh
-```
-
-**Subsequent starts:**
+### 4. Start Services (After Initial Setup)
 
 ```bash
 docker-compose up -d
 ```
 
-## Monitoring
+That's it! Your proxy is now running at `https://your-domain.com`
 
-**For Let's Encrypt mode:**
+## Health Monitoring
+
+The system includes automatic health checks every 5 minutes:
+
+- ✅ VPN connection to Spain
+- ✅ Nginx responsiveness
+- ✅ Cloudflare tunnel connectivity
+- ✅ Proxy endpoint availability
+- ✅ Cache functionality
+
+If any check fails, containers are automatically restarted.
+
+View health check logs:
 ```bash
-# View logs
-docker-compose logs -f
-
-# Check VPN status (should show Spanish IP)
-docker exec rtve-vpn curl -s ifconfig.me
-
-# Restart
-docker-compose restart
+docker logs rtve-healthcheck
 ```
 
-**For Cloudflare Tunnel mode:**
+## Alternative: Let's Encrypt SSL (Without Cloudflare)
+
+**Use this if you don't use Cloudflare for DNS**
+
+### Requirements
+- Domain with A record pointing to your server's public IP
+- Ports 80 and 443 forwarded to your server
+
+### Setup
+
+1. Configure `.env` with:
+   - `PROTONVPN_USER` and `PROTONVPN_PASSWORD`
+   - `DOMAIN` - your domain name
+   - `SSL_EMAIL` - email for Let's Encrypt notifications
+
+2. Run the setup script:
 ```bash
-# View logs
-docker-compose -f docker-compose.yml -f docker-compose.cloudflare.yml logs -f
+./setup-ssl.sh
+```
 
-# Check VPN status (should show Spanish IP)
-docker exec rtve-vpn curl -s ifconfig.me
+3. Start services:
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.letsencrypt.yml up -d
+```
 
-# Restart
-docker-compose -f docker-compose.yml -f docker-compose.cloudflare.yml restart
+## Monitoring
+
+**Cloudflare mode:**
+```bash
+# View all logs
+docker-compose logs -f
+
+# Check VPN location (should show Spain)
+docker exec rtve-vpn wget -qO- ipapi.co/country
 
 # Check tunnel status
 docker logs rtve-cloudflared
+
+# Check health status
+docker logs rtve-healthcheck
 ```
+
+**Let's Encrypt mode:**
+```bash
+# View all logs
+docker-compose -f docker-compose.yml -f docker-compose.letsencrypt.yml logs -f
+
+# Check VPN location
+docker exec rtve-vpn wget -qO- ipapi.co/country
+
+# Check SSL renewal
+docker logs rtve-certbot
+```
+
+## Caching Performance
+
+The proxy caches HLS video segments to improve performance:
+
+- **Cache size**: 500MB maximum
+- **Retention**: 10 minutes per segment
+- **Benefit**: Multiple viewers share cached segments, reducing VPN bandwidth
+
+Check cache status with the `X-Cache-Status` response header:
+- `HIT` - Served from cache
+- `MISS` - Fetched from origin
+- `UPDATING` - Being refreshed
 
 ## Troubleshooting
 
 **General:**
 - **VPN not connecting**: Check credentials in `.env` and verify ProtonVPN account is active
 - **No Spain servers**: Make sure `FREE_ONLY=off` if you have a paid account
-- **Nginx errors**: Check `docker-compose logs nginx`
+- **Nginx errors**: Check `docker logs rtve-nginx`
+- **Health check failures**: Check `docker logs rtve-healthcheck` for specific issues
 
 **Cloudflare Tunnel specific:**
 - **Tunnel not connecting**: Check `docker logs rtve-cloudflared` for errors
 - **DNS not resolving**: Verify your domain uses Cloudflare nameservers
 - **API token errors**: Ensure token has correct permissions (see setup instructions)
 
-## What Files Are Created
+**Let's Encrypt specific:**
+- **Certificate errors**: Ensure ports 80/443 are forwarded and DNS is correct
+- **Renewal failures**: Check `docker logs rtve-certbot`
 
-**Required (committed to repo):**
-- `docker-compose.yml` - Main compose file
-- `docker-compose.cloudflare.yml` - Cloudflare Tunnel override
-- `nginx.conf` - Nginx config for Let's Encrypt mode
-- `nginx-cloudflare.conf` - Nginx config for Cloudflare mode
-- `setup-ssl.sh` - Setup script for Let's Encrypt
-- `setup-cloudflare.sh` - Setup script for Cloudflare Tunnel
-- `.env.example` - Example environment variables
+## File Structure
 
-**Created by you:**
-- `.env` - Your credentials and configuration (gitignored)
+**Main files:**
+- `docker-compose.yml` - Main compose file (Cloudflare Tunnel mode)
+- `docker-compose.letsencrypt.yml` - Let's Encrypt override
+- `nginx-cloudflare.conf` - Nginx config for Cloudflare mode (with caching)
+- `nginx.conf` - Nginx config for Let's Encrypt mode (with caching)
+- `setup-cloudflare.sh` - Cloudflare Tunnel setup script
+- `setup-ssl.sh` - Let's Encrypt setup script
+- `healthcheck.sh` - Health monitoring script
+- `.env.example` - Environment variables template
 
 **Auto-generated (gitignored):**
-- `gluetun/` - VPN configuration and state
-- `cloudflared/` - Cloudflare Tunnel credentials (Cloudflare mode only)
-- Docker volumes: `certbot-data`, `certbot-www` (Let's Encrypt mode only)
+- `.env` - Your credentials
+- `gluetun/` - VPN state
+- `cloudflared/` - Tunnel credentials (Cloudflare mode)
+- Docker volumes: `certbot-data`, `certbot-www` (Let's Encrypt mode)
+
+## Architecture
+
+```
+Internet
+  ↓ (Cloudflare Tunnel - encrypted, no port forwarding)
+cloudflared container (in VPN namespace)
+  ↓ (localhost:80)
+nginx container (in VPN namespace, with HLS cache)
+  ↓ (outbound through VPN)
+VPN container (ProtonVPN Spain exit)
+  ↓
+rtvelivestream.rtve.es
+```
+
+Health monitoring runs every 5 minutes and restarts containers if issues detected.
