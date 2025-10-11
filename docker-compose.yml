@@ -20,6 +20,7 @@ services:
       - VPN_TYPE=openvpn
       - DOT=off
       - DNS_ADDRESS=1.1.1.1
+      - BLOCK_IPV6=on
     volumes:
       - ./gluetun:/gluetun
     restart: unless-stopped
@@ -50,7 +51,6 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: rtve-cloudflared
-    network_mode: "service:vpn"
     command: tunnel --config /etc/cloudflared/config.yml run
     volumes:
       - ./cloudflared:/etc/cloudflared:ro
